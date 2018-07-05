@@ -2,6 +2,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <thread>
 #include <uWS/uWS.h>
 #include <vector>
@@ -25,8 +26,8 @@ double rad2deg(double x) { return x * 180 / pi(); }
 // else the empty string "" will be returned.
 string hasData(const string &s) {
     auto found_null = s.find("null");
-    auto b1 = s.find_first_of("[");
-    auto b2 = s.find_first_of("}");
+    auto b1 = s.find_first_of('[');
+    auto b2 = s.find_first_of('}');
     if (found_null != string::npos) {
         return "";
     } else if (b1 != string::npos && b2 != string::npos) {
@@ -36,27 +37,22 @@ string hasData(const string &s) {
 }
 
 double distance(double x1, double y1, double x2, double y2) {
-    return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
+    return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
 }
 
 int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y) {
 
-    double closestLen = 100000; //large number
+    double closestLen = numeric_limits<double>::max();
     int closestWaypoint = 0;
-
-    for(int i = 0; i < maps_x.size(); i++)
-    {
+    for (int i = 0; i < maps_x.size(); i++) {
         double map_x = maps_x[i];
         double map_y = maps_y[i];
         double dist = distance(x,y,map_x,map_y);
-        if(dist < closestLen)
-        {
+        if (dist < closestLen) {
             closestLen = dist;
             closestWaypoint = i;
         }
-
     }
-
     return closestWaypoint;
 
 }
@@ -64,23 +60,18 @@ int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vect
 int NextWaypoint(double x, double y, double theta,
                  const vector<double> &maps_x, const vector<double> &maps_y) {
 
-    int closestWaypoint = ClosestWaypoint(x,y,maps_x,maps_y);
+    int closestWaypoint = ClosestWaypoint(x, y, maps_x, maps_y);
+    double heading = atan2((maps_y[closestWaypoint] - y), (maps_x[closestWaypoint] - x));
 
-    double map_x = maps_x[closestWaypoint];
-    double map_y = maps_y[closestWaypoint];
+    double angle = fabs(theta - heading);
+    angle = min(2 * pi() - angle, angle);
 
-    double heading = atan2((map_y-y),(map_x-x));
-
-    double angle = fabs(theta-heading);
-    angle = min(2*pi() - angle, angle);
-
-    if(angle > pi()/4) {
+    if (angle > pi() / 4) {
         closestWaypoint++;
         if (closestWaypoint == maps_x.size()) {
             closestWaypoint = 0;
         }
     }
-
     return closestWaypoint;
 }
 
@@ -133,37 +124,36 @@ vector<double> getFrenet(double x, double y, double theta,
 
 }
 
-// Transform from Frenet s,d coordinates to Cartesian x,y
+// Transform from Frenet s,d coordinates to Cartesian x, y
 vector<double> getXY(double s, double d, const vector<double> &maps_s,
                      const vector<double> &maps_x, const vector<double> &maps_y) {
     int prev_wp = -1;
 
-    while(s > maps_s[prev_wp+1] && (prev_wp < (int)(maps_s.size()-1) ))
-    {
+    while (s > maps_s[prev_wp + 1] && (prev_wp < (int)(maps_s.size() - 1))) {
         prev_wp++;
     }
 
-    int wp2 = (prev_wp + 1)%maps_x.size();
+    int wp2 = (prev_wp + 1) % (int)maps_x.size();
 
-    double heading = atan2((maps_y[wp2]-maps_y[prev_wp]),(maps_x[wp2]-maps_x[prev_wp]));
+    double heading = atan2(maps_y[wp2] - maps_y[prev_wp], maps_x[wp2] - maps_x[prev_wp]);
     // the x,y,s along the segment
-    double seg_s = (s-maps_s[prev_wp]);
+    double seg_s = s - maps_s[prev_wp];
 
-    double seg_x = maps_x[prev_wp]+seg_s*cos(heading);
-    double seg_y = maps_y[prev_wp]+seg_s*sin(heading);
+    double seg_x = maps_x[prev_wp] + seg_s * cos(heading);
+    double seg_y = maps_y[prev_wp] + seg_s * sin(heading);
 
-    double perp_heading = heading-pi()/2;
+    double perp_heading = heading - pi() / 2;
 
-    double x = seg_x + d*cos(perp_heading);
-    double y = seg_y + d*sin(perp_heading);
+    double x = seg_x + d * cos(perp_heading);
+    double y = seg_y + d * sin(perp_heading);
 
-    return {x,y};
+    return {x, y};
 }
 
 int main() {
     uWS::Hub h;
 
-    // Load up map values for waypoint's x, y , s and d normalized normal vectors.
+    // Load up map values for waypoint's x, y, s and d normalized normal vectors.
     vector<double> map_waypoints_x;
     vector<double> map_waypoints_y;
     vector<double> map_waypoints_s;
@@ -204,12 +194,12 @@ int main() {
         // The 2 signifies a websocket event
         // auto sdata = string(data).substr(0, length);
         // cout << sdata << endl;
-        if (!(length && length > 2 && data[0] == '4' && data[1] == '2')) {
+        if (!(length > 2 && data[0] == '4' && data[1] == '2')) {
             return;
         }
 
         auto s = hasData(data);
-        if (s == "") {
+        if (s.empty()) {
             // Manual driving
             std::string msg = "42[\"manual\",{}]";
             ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
@@ -237,22 +227,58 @@ int main() {
         // Previous path's end s and d values
         double end_path_s = j[1]["end_path_s"];
         double end_path_d = j[1]["end_path_d"];
-
         // Sensor Fusion Data, a list of all other cars on the same side of the road.
         auto sensor_fusion = j[1]["sensor_fusion"];
 
-        json msgJson;
-
+        // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
         vector<double> next_x_vals;
         vector<double> next_y_vals;
 
-        double dist_inc = 0.5;
-        for(int i = 0; i < 50; i++) {
-            next_x_vals.push_back(car_x + (dist_inc * i) * cos(deg2rad(car_yaw)));
-            next_y_vals.push_back(car_y + (dist_inc * i) * sin(deg2rad(car_yaw)));
+        // Circular path with constant velocity.
+        double pos_x;
+        double pos_y;
+        double angle;
+        int path_size = previous_path_x.size();
+
+        for(int i = 0; i < path_size; i++)
+        {
+            next_x_vals.push_back(previous_path_x[i]);
+            next_y_vals.push_back(previous_path_y[i]);
         }
 
-        // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+        if(path_size == 0)
+        {
+            pos_x = car_x;
+            pos_y = car_y;
+            angle = deg2rad(car_yaw);
+        }
+        else
+        {
+            pos_x = previous_path_x[path_size-1];
+            pos_y = previous_path_y[path_size-1];
+
+            double pos_x2 = previous_path_x[path_size-2];
+            double pos_y2 = previous_path_y[path_size-2];
+            angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
+        }
+
+        double dist_inc = 0.5;
+        for(int i = 0; i < 50-path_size; i++)
+        {
+            next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
+            next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
+            pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
+            pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
+        }
+
+        // Straight path with constant velocity.
+//        double dist_inc = 0.5;
+//        for(int i = 0; i < 50; i++) {
+//            next_x_vals.push_back(car_x + (dist_inc * i) * cos(deg2rad(car_yaw)));
+//            next_y_vals.push_back(car_y + (dist_inc * i) * sin(deg2rad(car_yaw)));
+//        }
+
+        json msgJson;
         msgJson["next_x"] = next_x_vals;
         msgJson["next_y"] = next_y_vals;
 
@@ -264,8 +290,7 @@ int main() {
 
     // We don't need this since we're not using HTTP but if it's removed the
     // program doesn't compile :-(
-    h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data,
-                       size_t, size_t) {
+    h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
         const std::string s = "<h1>Hello world!</h1>";
         if (req.getUrl().valueLength == 1) {
             res->end(s.data(), s.length());
