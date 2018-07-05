@@ -10,6 +10,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+#include "spline.h"
 
 using namespace std;
 
@@ -161,9 +162,7 @@ int main() {
     vector<double> map_waypoints_dy;
 
     // Waypoint map to read from
-    string map_file_ = "../data/highway_map.csv";
-    // The max s value before wrapping around the track back to 0
-    double max_s = 6945.554;
+    const string map_file_ = "../data/highway_map.csv";
 
     ifstream in_map_(map_file_.c_str(), ifstream::in);
 
@@ -211,6 +210,19 @@ int main() {
         if (event != "telemetry") {
             return;
         }
+        
+        // The max s value before wrapping around the track back to 0
+        const double max_s = 6945.554;
+        // Lane width in meters.
+        const int lane_width = 4;
+        // Simulator's frequency to update car pose (seconds).
+        const double sim_update_freq = 0.02;
+        // Lane is [0, 2], from center to right side of the road.
+        int lane = 1;
+        // Reference velocity in m/s.
+        double ref_vel = 49.5 /*mph*/ * 1609.344 /*meters per mile*/ / 3600 /*sec per hour*/;
+
+
         // j[1] is the data JSON object
 
         // Main car's localization Data
@@ -230,19 +242,93 @@ int main() {
         // Sensor Fusion Data, a list of all other cars on the same side of the road.
         auto sensor_fusion = j[1]["sensor_fusion"];
 
-        // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+        auto prev_size = previous_path_x.size();
+
+        vector<double> pts_x, pts_y;
+
+        double ref_x;
+        double ref_y;
+        double ref_yaw;
+
+        if (prev_size < 2) {
+            // Previous size is almost empty, use car pose as the starting reference.
+            ref_x = car_x;
+            ref_y = car_y;
+            ref_yaw = deg2rad(car_yaw);
+
+            // Just use two points that make the path tangent to the car.
+            pts_x.push_back(car_x - cos(car_yaw));
+            pts_x.push_back(car_x);
+            pts_y.push_back(car_y - sin(car_yaw));
+            pts_y.push_back(car_y);
+        } else {
+            // Use the previous path as the starting reference.
+            ref_x = previous_path_x[prev_size - 1];
+            ref_y = previous_path_y[prev_size - 1];
+
+            double prev_ref_x = previous_path_x[prev_size - 2];
+            double prev_ref_y = previous_path_y[prev_size - 2];
+            ref_yaw = atan2(ref_y - prev_ref_y, ref_x - prev_ref_x);
+
+            // Use two points that make the path tangent to the previous path's end point.
+            pts_x.push_back(prev_ref_x);
+            pts_x.push_back(ref_x);
+            pts_y.push_back(prev_ref_y);
+            pts_y.push_back(ref_y);
+        }
+
+        // In Frenet, add a few evenly 30m spaced points ahead of the starting reference.
+        for (int i = 0; i < 3; i++) {
+            auto xy = getXY(car_s + 30 * (i + 1), lane_width / 2.0 + lane_width * i,
+                            map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            pts_x.push_back(xy[0]);
+            pts_y.push_back(xy[1]);
+        }
+
+        // Convert the points from global to car coordinate system (to make the math easier).
+        for (int i = 0; i < pts_x.size(); i++) {
+            double shift_x = pts_x[i] - ref_x;
+            double shift_y = pts_y[i] - ref_y;
+            pts_x[i] = shift_x * cos(0 - ref_yaw) - shift_y * sin(0 - ref_yaw);
+            pts_y[i] = shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw);
+        }
+
+        // Define the spline.
+        tk::spline spline;
+        spline.set_points(pts_x, pts_y);
+
+        // Define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
         vector<double> next_x_vals;
         vector<double> next_y_vals;
+        // Start with the previous way points.
+        for (int i = 0; i < prev_size; i++) {
+            next_x_vals.push_back(previous_path_x[i]);
+            next_y_vals.push_back(previous_path_y[i]);
+        }
 
-        // Lane keeping.
-        double dist_inc = 0.4;
-        for(int i = 0; i < 50; i++) {
-            double next_s = car_s + i * dist_inc;
-            double next_d = car_d;
-            auto xy = getXY(next_s, next_d,
-                    map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            next_x_vals.push_back(xy[0]);
-            next_y_vals.push_back(xy[1]);
+        // Set up the horizon.
+        double horizon_x = 30.0;
+        double horizon_y = spline(horizon_x);
+        double horizon_dist = distance(horizon_x, horizon_y, 0, 0);
+        // The spacing of the points depends on reference speed and simulator update frequency.
+        double N = horizon_dist / (sim_update_freq * ref_vel);
+
+        double x_add_on = 0;
+        for (int i = 1; i <= 50 - prev_size; i++) {
+            double point_x = x_add_on + horizon_x / N;
+            double point_y = spline(point_x);
+            x_add_on = point_x;
+
+            // Convert the point from car to global coordinate system.
+            double x_ref = point_x;
+            double y_ref = point_y;
+            point_x = x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw);
+            point_y = x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw);
+            point_x += ref_x;
+            point_y += ref_y;
+
+            next_x_vals.push_back(point_x);
+            next_y_vals.push_back(point_y);
         }
 
         // Circular path with constant velocity.
