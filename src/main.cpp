@@ -233,10 +233,12 @@ int main() {
         const int lane_width = 4;
         // Simulator's frequency to update car pose (seconds).
         const double sim_update_freq = 0.02;
-        // Speed limit in mps.
+        // Speed limit in meters per second.
         const double speed_limit = mph_to_mps(49.5);
         // Acceleration/deceleration limit.
         const double acc_limit = 5 /*meters per second^2*/ * sim_update_freq;
+        // Safety margin in meters.
+        const double safety_margin = 30;
 
         // j[1] is the data JSON object
 
@@ -255,14 +257,40 @@ int main() {
         double end_path_s = j[1]["end_path_s"];
         double end_path_d = j[1]["end_path_d"];
         // Sensor Fusion Data, a list of all other cars on the same side of the road.
-        auto sensor_fusion = j[1]["sensor_fusion"];
+        vector<vector<double>> sensor_fusion = j[1]["sensor_fusion"];
 
         auto prev_size = previous_path_x.size();
 
-        if (velocity < speed_limit) {
+        // Check if we are too close to the car in front.
+        if (prev_size > 0) {
+            car_s = end_path_s;
+        }
+
+        bool should_slow_down = false;
+        for (auto check_car : sensor_fusion) {
+            auto d = check_car[6];
+            if (d > lane_width * lane && d < lane_width * (lane + 1)) {
+                // This car is in our lane.
+                auto vx = check_car[3];
+                auto vy = check_car[4];
+                double check_speed = sqrt(vx * vx + vy * vy);
+                double check_car_s = check_car[5];
+                // Take the simulator delay into account to predict the future.
+                check_car_s += prev_size * sim_update_freq * check_speed;
+                if (check_car_s > car_s && check_car_s - car_s < safety_margin) {
+                    should_slow_down = true;
+                }
+            }
+        }
+
+        // Adjust car speed.
+        if (should_slow_down) {
+            velocity -= acc_limit;
+        } else if (velocity < speed_limit) {
             velocity += acc_limit;
         }
 
+        // Trajectory generation based on lane and speed.
         vector<double> pts_x, pts_y;
 
         double ref_x;
