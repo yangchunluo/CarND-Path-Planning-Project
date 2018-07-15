@@ -125,7 +125,7 @@ vector<double> getFrenet(double x, double y, double theta,
 
 }
 
-// Transform from Frenet s,d coordinates to Cartesian x, y
+// Transform from Frenet s, d coordinates to Cartesian x, y
 vector<double> getXY(double s, double d, const vector<double> &maps_s,
                      const vector<double> &maps_x, const vector<double> &maps_y) {
     int prev_wp = -1;
@@ -149,6 +149,15 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s,
     double y = seg_y + d * sin(perp_heading);
 
     return {x, y};
+}
+
+// Miles per hour to meters per second.
+double mph_to_mps(double mph) {
+    return mph * 1609.344 /*meters per mile*/ / 3600 /*sec per hour*/;
+}
+
+double get_lane_center(int lane, int lane_width) {
+    return lane_width / 2 + lane_width * lane;
 }
 
 int main() {
@@ -186,8 +195,14 @@ int main() {
         map_waypoints_dy.push_back(d_y);
     }
 
-    h.onMessage([&map_waypoints_x, &map_waypoints_y, &map_waypoints_s, &map_waypoints_dx, &map_waypoints_dy]
-                        (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
+    // Lane is [0, 2], from road center to right side of the road.
+    int lane = 1;
+    // mph.
+    double velocity = 0;
+
+    h.onMessage([&lane, &velocity,
+                 &map_waypoints_x, &map_waypoints_y, &map_waypoints_s, &map_waypoints_dx, &map_waypoints_dy]
+                 (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
         // "42" at the start of the message means there's a websocket message event.
         // The 4 signifies a websocket message
         // The 2 signifies a websocket event
@@ -210,18 +225,18 @@ int main() {
         if (event != "telemetry") {
             return;
         }
-        
+
+        // Some constant values.
         // The max s value before wrapping around the track back to 0
         const double max_s = 6945.554;
         // Lane width in meters.
         const int lane_width = 4;
         // Simulator's frequency to update car pose (seconds).
         const double sim_update_freq = 0.02;
-        // Lane is [0, 2], from center to right side of the road.
-        int lane = 1;
-        // Reference velocity in m/s.
-        double ref_vel = 49.5 /*mph*/ * 1609.344 /*meters per mile*/ / 3600 /*sec per hour*/;
-
+        // Speed limit in mps.
+        const double speed_limit = mph_to_mps(49.5);
+        // Acceleration/deceleration limit.
+        const double acc_limit = 5 /*meters per second^2*/ * sim_update_freq;
 
         // j[1] is the data JSON object
 
@@ -243,6 +258,10 @@ int main() {
         auto sensor_fusion = j[1]["sensor_fusion"];
 
         auto prev_size = previous_path_x.size();
+
+        if (velocity < speed_limit) {
+            velocity += acc_limit;
+        }
 
         vector<double> pts_x, pts_y;
 
@@ -279,7 +298,7 @@ int main() {
 
         // In Frenet space, add a few evenly 30m spaced points ahead of the starting reference.
         for (int i = 0; i < 3; i++) {
-            auto xy = getXY(car_s + 30 * (i + 1), lane_width / 2.0 + lane_width * i,
+            auto xy = getXY(car_s + 30 * (i + 1), get_lane_center(lane, lane_width),
                             map_waypoints_s, map_waypoints_x, map_waypoints_y);
             pts_x.push_back(xy[0]);
             pts_y.push_back(xy[1]);
@@ -311,7 +330,7 @@ int main() {
         double horizon_y = spline(horizon_x);
         double horizon_dist = distance(horizon_x, horizon_y, 0, 0);
         // The spacing of the points depends on reference speed and simulator update frequency.
-        double N = horizon_dist / (sim_update_freq * ref_vel);
+        double N = horizon_dist / (sim_update_freq * velocity);
 
         double x_add_on = 0;
         for (int i = 1; i <= 50 - prev_size; i++) {
