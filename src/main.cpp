@@ -277,7 +277,7 @@ int main() {
             pts_y.push_back(ref_y);
         }
 
-        // In Frenet, add a few evenly 30m spaced points ahead of the starting reference.
+        // In Frenet space, add a few evenly 30m spaced points ahead of the starting reference.
         for (int i = 0; i < 3; i++) {
             auto xy = getXY(car_s + 30 * (i + 1), lane_width / 2.0 + lane_width * i,
                             map_waypoints_s, map_waypoints_x, map_waypoints_y);
@@ -285,7 +285,7 @@ int main() {
             pts_y.push_back(xy[1]);
         }
 
-        // Convert the points from global to car coordinate system (to make the math easier).
+        // Convert the points from global to car coordinate system (to make later math easier).
         for (int i = 0; i < pts_x.size(); i++) {
             double shift_x = pts_x[i] - ref_x;
             double shift_y = pts_y[i] - ref_y;
@@ -320,10 +320,10 @@ int main() {
             x_add_on = point_x;
 
             // Convert the point from car to global coordinate system.
-            double x_ref = point_x;
-            double y_ref = point_y;
-            point_x = x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw);
-            point_y = x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw);
+            double shift_x = point_x;
+            double shift_y = point_y;
+            point_x = shift_x * cos(ref_yaw) - shift_y * sin(ref_yaw);
+            point_y = shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw);
             point_x += ref_x;
             point_y += ref_y;
 
@@ -331,56 +331,11 @@ int main() {
             next_y_vals.push_back(point_y);
         }
 
-        // Circular path with constant velocity.
-//        double pos_x;
-//        double pos_y;
-//        double angle;
-//        int path_size = previous_path_x.size();
-//
-//        for(int i = 0; i < path_size; i++)
-//        {
-//            next_x_vals.push_back(previous_path_x[i]);
-//            next_y_vals.push_back(previous_path_y[i]);
-//        }
-//
-//        if(path_size == 0)
-//        {
-//            pos_x = car_x;
-//            pos_y = car_y;
-//            angle = deg2rad(car_yaw);
-//        }
-//        else
-//        {
-//            pos_x = previous_path_x[path_size-1];
-//            pos_y = previous_path_y[path_size-1];
-//
-//            double pos_x2 = previous_path_x[path_size-2];
-//            double pos_y2 = previous_path_y[path_size-2];
-//            angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
-//        }
-//
-//        double dist_inc = 0.5;
-//        for(int i = 0; i < 50-path_size; i++)
-//        {
-//            next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
-//            next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
-//            pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
-//            pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
-//        }
-
-        // Straight path with constant velocity.
-//        double dist_inc = 0.5;
-//        for(int i = 0; i < 50; i++) {
-//            next_x_vals.push_back(car_x + (dist_inc * i) * cos(deg2rad(car_yaw)));
-//            next_y_vals.push_back(car_y + (dist_inc * i) * sin(deg2rad(car_yaw)));
-//        }
-
+        // Send the control data bak to the simulator.
         json msgJson;
         msgJson["next_x"] = next_x_vals;
         msgJson["next_y"] = next_y_vals;
-
         auto msg = "42[\"control\","+ msgJson.dump()+"]";
-
         // this_thread::sleep_for(chrono::milliseconds(1000));
         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
     });
