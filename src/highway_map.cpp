@@ -37,7 +37,6 @@ void HighwayMap::loadMap(const std::string &dataFile) {
     }
 }
 
-//
 /**
  * Transforms from Cartesian x, y coordinates to Frenet s, d coordinates
  * @param x
@@ -45,7 +44,7 @@ void HighwayMap::loadMap(const std::string &dataFile) {
  * @param theta
  * @return s, d coordinates
  */
-vector<double> HighwayMap::xyToFrenet(double x, double y, double theta) {
+vector<double> HighwayMap::xyToFrenet(double x, double y, double theta) const {
     int next_wp = getNextWaypoint(x, y, theta);
 
     int prev_wp;
@@ -93,7 +92,7 @@ vector<double> HighwayMap::xyToFrenet(double x, double y, double theta) {
  * @param d
  * @return x, y coordinates
  */
-vector<double> HighwayMap::frenetToXY(double s, double d) {
+vector<double> HighwayMap::frenetToXY(double s, double d) const {
     int prev_wp = -1;
 
     while (s > waypoints_s[prev_wp + 1] && prev_wp < (int) waypoints_s.size() - 1) {
@@ -125,7 +124,7 @@ vector<double> HighwayMap::frenetToXY(double s, double d) {
  * @param y: y coordinate.
  * @return: waypoint ID.
  */
-int HighwayMap::getClosestWaypoint(double x, double y) {
+int HighwayMap::getClosestWaypoint(double x, double y) const {
     double closestLen = numeric_limits<double>::max();
     int closestWaypoint = 0;
     for (int i = 0; i < waypoints_x.size(); i++) {
@@ -147,8 +146,7 @@ int HighwayMap::getClosestWaypoint(double x, double y) {
  * @param theta
  * @return: waypoint ID.
  */
-int HighwayMap::getNextWaypoint(double x, double y, double theta) {
-
+int HighwayMap::getNextWaypoint(double x, double y, double theta) const {
     int closestWaypoint = getClosestWaypoint(x, y);
     double heading = atan2(waypoints_y[closestWaypoint] - y,
                            waypoints_x[closestWaypoint] - x);

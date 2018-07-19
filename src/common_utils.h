@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 // For converting back and forth between radians and degrees.
 inline constexpr double pi() { return 3.1415926; }
 inline double deg2rad(double x) { return x * pi() / 180; }
