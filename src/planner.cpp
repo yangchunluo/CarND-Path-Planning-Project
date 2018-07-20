@@ -30,14 +30,18 @@ vector<vector<double>> Planner::planPath(const EnvContext &context) {
     double target_speed;
 
 
-//    int target_lane = get_lane_from_file();
-//    if (target_lane >= 0 && target_lane != lane) {
-//        cout << "switching from lane " << lane << " to " << target_lane << endl;
-//        lane = target_lane;
-//    }
+    int target_lane = get_lane_from_file();
+    if (target_lane >= 0 && target_lane != lane) {
+        cout << "switching from lane " << lane << " to " << target_lane << endl;
+        lane = target_lane;
+        fsm = LANE_CHANGING;
+    } else {
+        fsm = LANE_KEEPING;
+    }
 
     switch (fsm) {
-        case LANE_KEEPING: {
+        case LANE_KEEPING:
+        case LANE_CHANGING: {
             // Get the distance and speed of the closest car in front of us.
             double closest_car_id = -1, closest_distance = -1, closest_speed = -1;
             for (auto check_car : context.sensor_fusion) {
@@ -68,8 +72,8 @@ vector<vector<double>> Planner::planPath(const EnvContext &context) {
             if (closest_car_id < 0) {
                 // No car is in the safe distance in front of our lane.
                 target_speed = mph_to_mps(context.speed_limit_mph);
-                 printf("No car detected in front, current speed %.2f m/s, target speed %.2f m/s\n",
-                       velocity, target_speed);
+                // printf("No car detected in front, current speed %.2f m/s, target speed %.2f m/s\n",
+                //       velocity, target_speed);
             } else {
                 // Decrease the speed to the lane speed.
                 printf("Car %d detected in %.2f meters, current speed %.2f m/s, lane speed %.2f m/s\n",
@@ -86,6 +90,7 @@ vector<vector<double>> Planner::planPath(const EnvContext &context) {
             }
 
         } break;
+
 
         default:
             throw invalid_argument("Invalid state");

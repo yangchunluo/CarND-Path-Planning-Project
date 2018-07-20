@@ -11,7 +11,8 @@ class Planner {
 private:
     // Finite state machine for motion planning.
     enum {
-        LANE_KEEPING
+        LANE_KEEPING,
+        LANE_CHANGING
     } fsm = LANE_KEEPING;
 
 
