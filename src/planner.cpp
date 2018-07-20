@@ -95,13 +95,13 @@ int decideLaneChange(const int current_lane, const vector<LaneInfo> &lane_infos,
         const auto& front = lane_infos[candidate].front;
         if (front.car_id > 0) {
             if (front.clearance < 30) {
-                printf("Skip candidate %d because front clearance %f is too small\n",
+                printf("Skip lane %d: front clearance %.2f too small\n",
                        candidate, front.clearance);
                 continue;
             }
-            if (front.speed < lane_infos[current_lane].front.speed) {
-                printf("Skip candidate %d because front speed %f is less than current lane %f\n",
-                       candidate, front.speed, lane_infos[current_lane].front.speed);
+            if (front.clearance < 45 && front.speed < lane_infos[current_lane].front.speed) {
+                printf("Skip lane %d: front clearance %.2f, but speed %.2f < current lane %.2f\n",
+                       candidate, front.clearance, front.speed, lane_infos[current_lane].front.speed);
                 continue;
             }
         }
@@ -109,20 +109,20 @@ int decideLaneChange(const int current_lane, const vector<LaneInfo> &lane_infos,
         const auto& rear = lane_infos[candidate].rear;
         if (rear.car_id > 0) {
             if (rear.clearance < 5) {
-                printf("Skip candidate %d because rear clearance %f is too small\n",
+                printf("Skip lane %d: rear clearance %.2f too small\n",
                        candidate, rear.clearance);
                 continue;
             }
             if (rear.speed > max(context.car_speed * 1.1, context.car_speed + 5) &&
                 rear.clearance < 15) {
-                printf("Skip candidate %d because rear clearance %f is too small for relative speed (%f %f)\n",
+                printf("Skip lane %d: rear clearance %.2f too small for relative speed (%.2f vs %.2f)\n",
                        candidate, rear.clearance, rear.speed, context.car_speed);
                 continue;
             }
         }
 
-        printf("Checked candidate lane %d, front car=%d clearance=%f speed=%f, "
-               "rear car=%d clearance=%f speed=%f\n",
+        printf("Take lane %d: front car=%2d clearance=%.2f speed=%.2f, "
+               "rear car=%2d clearance=%.2f speed=%.2f\n",
                candidate, front.car_id, front.clearance, front.speed,
                rear.car_id, rear.clearance, rear.speed);
         checked_candidates.emplace_back(candidate);
