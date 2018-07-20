@@ -1,5 +1,6 @@
-#include <exception>
 #include <cstdio>
+#include <cassert>
+#include <exception>
 
 #include "planner.h"
 #include "spline.h"
@@ -19,6 +20,7 @@ static int get_lane_from_file() {
     istringstream iss(line);
     int lane;
     iss >> lane;
+    remove("/tmp/control.txt");
     return lane;
 }
 
@@ -27,7 +29,7 @@ static int get_lane_from_file() {
  * @param context
  * @return a vector of lane information.
  */
-vector<LaneInfo> Planner::buildLaneInfos(const EnvContext &context) const {
+vector<LaneInfo> buildLaneInfos(const EnvContext &context) {
     // Initialize the returned vector.
     vector<LaneInfo> ret((unsigned)context.num_lanes);
 
@@ -63,64 +65,73 @@ vector<LaneInfo> Planner::buildLaneInfos(const EnvContext &context) const {
     return ret;
 }
 
-vector<vector<double>> Planner::planPath(const EnvContext &context) {
-    const auto prev_size = context.previous_path_x.size();
-    const double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
+/**
+ * Decide if we want a lane change.
+ * @param current_lane
+ * @param lane_infos
+ * @param context
+ * @return the target lane
+ */
+int decideLaneChange(const int current_lane, const vector<LaneInfo> &lane_infos,
+                     const EnvContext &context) {
+    auto target = get_lane_from_file();
+    if (target < 0) {
+        return current_lane;
+    }
+    return target;
+}
 
-    // 1. Build information about each lane.
-    const vector<LaneInfo> lane_infos = buildLaneInfos(context);
+/**
+ * Plan the motion by determining target lane and speed.
+ * @param context
+ * @param lane_infos
+ * @return target speed (target lane is a class variable)
+ */
+double Planner::planMotion(const EnvContext &context, const vector<LaneInfo> &lane_infos) {
+    printf("car d is %f, target_lane is %d\n", context.car_d, target_lane);
+    int current_lane = get_lane_number(context.car_d, context.lane_width);
+    assert(abs(target_lane - current_lane) <= 1);
 
-    // 1. Determine the lane and velocity.
-    double target_speed;
+    double target_speed = 0;
+    if (fsm == LANE_KEEPING) {
 
+        const auto &front = lane_infos[current_lane].front;
+        if (front.car_id < 0 || front.clearance > context.safety_margin) {
+            // No car is in the safe distance in front of our lane.
+            target_speed = mph_to_mps(context.speed_limit_mph);
+        } else {
 
-    int target_lane = get_lane_from_file();
-    if (target_lane >= 0 && target_lane != lane) {
-        cout << "switching from lane " << lane << " to " << target_lane << endl;
-        lane = target_lane;
-        fsm = LANE_CHANGING;
-    } else {
-        fsm = LANE_KEEPING;
+            // Decide if we want to change lane.
+//            target_lane = decideLaneChange(current_lane, lane_infos, context);
+//            if (target_lane != current_lane) {
+//                fsm = LANE_CHANGING;
+//            } else {
+                // Match speed with the car in front in the current lane.
+                target_speed = min(front.speed, mph_to_mps(context.speed_limit_mph));
+           // }
+        }
+    }
+    if (fsm == LANE_CHANGING) {
+        // TODO: check for collision and abort lane changing if necessary.
+
+        // Match speed with the target lane.
+        const auto &front = lane_infos[target_lane].front;
+        if (front.car_id < 0 || front.clearance > context.safety_margin) {
+            // No car is within the safe distance in the target lane.
+            target_speed = mph_to_mps(context.speed_limit_mph);
+        } else {
+            // Match speed with the car in front in the target lane.
+            target_speed = min(front.speed, mph_to_mps(context.speed_limit_mph));
+        }
+
+        // Check if we are done with lane changing.
+        if (abs(get_lane_center(target_lane, context.lane_width) - context.car_d) < 0.2) {
+            printf("Finished LANE_CHANGING to %d, switch to LANE_KEEPING", target_lane);
+            fsm = LANE_KEEPING;
+        }
     }
 
-    switch (fsm) {
-        case LANE_KEEPING:
-        case LANE_CHANGING: {
-            // Get the distance and speed of the closest car in front of us.
-            const auto& info = lane_infos[lane].front;
-            if (info.car_id < 0 || info.clearance > context.safety_margin) {
-                // No car is in the safe distance in front of our lane.
-                target_speed = mph_to_mps(context.speed_limit_mph);
-                // printf("No car detected in front, current speed %.2f m/s, target speed %.2f m/s\n",
-                //       velocity, target_speed);
-            } else {
-                // Decrease the speed to the lane speed.
-                printf("Car %d detected in %.2f meters, current speed %.2f m/s, lane speed %.2f m/s\n",
-                       info.car_id, info.clearance, velocity, info.speed);
-
-                // Check if we have enough break distance.
-                if (velocity < info.speed ||  // We will never catch up.
-                    info.clearance > 0.5 * square(velocity - info.speed) / context.acc_limit) {
-                    target_speed = info.speed;
-                } else {
-                    printf("!!!!!!Not enough brake distance!!!!!!\n");
-                    target_speed = info.speed;
-                }
-            }
-
-        } break;
-
-
-        default:
-            throw invalid_argument("Invalid state");
-    }
-
-    // Adjust speed.
-    updateVelocity(context, target_speed);
-
-    // 2. Generate trajectory.
-    return generateTrajectory(context);
-
+    return target_speed;
 }
 
 /**
@@ -183,7 +194,7 @@ vector<vector<double>> Planner::generateTrajectory(const EnvContext &context) co
 
     // In Frenet space, add a few evenly 30m spaced points ahead of the starting reference.
     for (int i = 0; i < 3; i++) {
-        auto xy = map.frenetToXY(car_s + 30 * (i + 1), get_lane_center(lane, context.lane_width));
+        auto xy = map.frenetToXY(car_s + 30 * (i + 1), get_lane_center(target_lane, context.lane_width));
         pts_x.push_back(xy[0]);
         pts_y.push_back(xy[1]);
     }
@@ -234,4 +245,24 @@ vector<vector<double>> Planner::generateTrajectory(const EnvContext &context) co
         next_y_vals.push_back(point_y);
     }
     return {next_x_vals, next_y_vals};
+}
+
+/**
+ * Public interface of the path planner.
+ * @param context
+ * @return trajectory in x, y global coordinates.
+ */
+vector<vector<double>> Planner::planPath(const EnvContext &context) {
+    // 1. Build information about each lane.
+    const vector<LaneInfo> lane_infos = buildLaneInfos(context);
+
+    // 2. Determine target lane and velocity.
+    auto target_speed = planMotion(context, lane_infos);
+
+    // 3. Update current speed.
+    updateVelocity(context, target_speed);
+
+    // 4. Generate trajectory.
+    return generateTrajectory(context);
+
 }
