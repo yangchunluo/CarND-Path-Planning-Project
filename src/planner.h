@@ -26,11 +26,11 @@ private:
     // Highway map.
     const HighwayMap& map;
 
-    // Starting states (set by the simulator).
+    // Starting states are set by the simulator.
     double velocity = 0;
-    int lane = 1;
+    int target_lane = 1;
 
-    std::vector<LaneInfo> buildLaneInfos(const EnvContext &context) const;
+    double planMotion(const EnvContext &context, const std::vector<LaneInfo> &lane_infos);
     void updateVelocity(const EnvContext &context, double target_speed);
     std::vector<std::vector<double>> generateTrajectory(const EnvContext &context) const;
 
