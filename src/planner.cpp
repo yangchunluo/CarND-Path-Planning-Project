@@ -1,43 +1,129 @@
+#include <exception>
+#include <cstdio>
+
 #include "planner.h"
 #include "spline.h"
 
 #include <iostream>
+#include <fstream>
 
 using namespace std;
 
-std::vector<std::vector<double>> Planner::planPath(const EnvContext &context) {
-    auto prev_size = context.previous_path_x.size();
-    double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
+static int get_lane_from_file() {
+    ifstream control_file("/tmp/control.txt", ifstream::in);
+    if (!control_file.is_open()) {
+        return -1;
+    }
+    string line;
+    getline(control_file, line);
+    istringstream iss(line);
+    int lane;
+    iss >> lane;
+    return lane;
+}
+
+vector<vector<double>> Planner::planPath(const EnvContext &context) {
+    const auto prev_size = context.previous_path_x.size();
+    const double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
 
     // 1. Determine the lane and velocity.
+    double target_speed;
 
-    // Check if we are too close to the car in front.
-    bool should_slow_down = false;
-    for (auto check_car : context.sensor_fusion) {
-        auto d = check_car[6];
-        if (d > context.lane_width * lane && d < context.lane_width * (lane + 1)) {
-            // This car is in our lane.
-            auto vx = check_car[3];
-            auto vy = check_car[4];
-            double check_speed = sqrt(vx * vx + vy * vy);
-            double check_car_s = check_car[5];
-            // Take the simulator delay into account to predict the future.
-            check_car_s += prev_size * context.sim_update_freq * check_speed;
-            if (check_car_s > car_s && check_car_s - car_s < context.safety_margin) {
-                should_slow_down = true;
+
+//    int target_lane = get_lane_from_file();
+//    if (target_lane >= 0 && target_lane != lane) {
+//        cout << "switching from lane " << lane << " to " << target_lane << endl;
+//        lane = target_lane;
+//    }
+
+    switch (fsm) {
+        case LANE_KEEPING: {
+            // Get the distance and speed of the closest car in front of us.
+            double closest_car_id = -1, closest_distance = -1, closest_speed = -1;
+            for (auto check_car : context.sensor_fusion) {
+                auto id = (int)check_car[0];
+                auto d = check_car[6];
+                if (get_lane_number(d, context.lane_width) != lane) {
+                    // The car is not in my lane.
+                    continue;
+                }
+                auto vx = check_car[3];
+                auto vy = check_car[4];
+                auto check_speed = sqrt(vx * vx + vy * vy);
+                auto check_car_s = check_car[5];
+                // Take the simulator delay into account to predict where the car is.
+                check_car_s += prev_size * context.sim_update_freq * check_speed;
+                if (check_car_s < car_s || check_car_s - car_s > context.safety_margin) {
+                    // The car is either behind or too far ahead.
+                    continue;
+                }
+                if (closest_distance > 0 && check_car_s - car_s > closest_distance) {
+                    // Not the closest car.
+                    continue;
+                }
+                closest_car_id = id;
+                closest_distance = check_car_s - car_s;
+                closest_speed = check_speed;
             }
-        }
+            if (closest_car_id < 0) {
+                // No car is in the safe distance in front of our lane.
+                target_speed = mph_to_mps(context.speed_limit_mph);
+                 printf("No car detected in front, current speed %.2f m/s, target speed %.2f m/s\n",
+                       velocity, target_speed);
+            } else {
+                // Decrease the speed to the lane speed.
+                printf("Car %d detected in %.2f meters, current speed %.2f m/s, lane speed %.2f m/s\n",
+                       (int)closest_car_id, closest_distance, velocity, closest_speed);
+
+                // Check if we have enough break distance.
+                if (velocity < closest_speed ||  // We will never catch up.
+                    closest_distance > 0.5 * square(velocity - closest_speed) / context.acc_limit) {
+                    target_speed = closest_speed;
+                } else {
+                    printf("!!!!!!Not enough brake distance!!!!!!\n");
+                    target_speed = closest_speed;
+                }
+            }
+
+        } break;
+
+        default:
+            throw invalid_argument("Invalid state");
     }
 
-    // Adjust car speed.
-    if (should_slow_down) {
-        velocity -= context.acc_limit;
-    } else if (velocity < mph_to_mps(context.speed_limit_mph)) {
-        velocity += context.acc_limit;
-    }
-
+    // Adjust speed.
+    updateVelocity(context, target_speed);
 
     // 2. Generate trajectory.
+    return generateTrajectory(context);
+
+}
+
+/**
+ * Updates velocity based on the target speed.
+ * @param context
+ * @param target_speed
+ */
+void Planner::updateVelocity(const EnvContext &context, double target_speed) {
+    if (abs(velocity - target_speed) < context.acc_limit * context.sim_update_freq) {
+        // Can reach the target speed in this update frame.
+        velocity = target_speed;
+    } else {
+        // Gradually reach the target speed so that we don't exceed max jerk limit.
+        velocity += context.acc_limit * context.sim_update_freq
+                    * (velocity < target_speed ? 1.0 : -1.0);
+    }
+}
+
+/**
+ * Generates smooth and jerk-minimizing trajectory using spline.
+ * @param context
+ * @return trajectory in x, y global coordinates.
+ */
+vector<vector<double>> Planner::generateTrajectory(const EnvContext &context) const {
+    const auto prev_size = context.previous_path_x.size();
+    const double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
+
     vector<double> pts_x, pts_y;
 
     double ref_x;

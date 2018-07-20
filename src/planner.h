@@ -9,12 +9,21 @@
 
 class Planner {
 private:
-    // Map
+    // Finite state machine for motion planning.
+    enum {
+        LANE_KEEPING
+    } fsm = LANE_KEEPING;
+
+
+    // Highway map.
     const HighwayMap& map;
 
-    // Starting conditions.
+    // Starting states (set by the simulator).
     double velocity = 0;
     int lane = 1;
+
+    void updateVelocity(const EnvContext &context, double target_speed);
+    std::vector<std::vector<double>> generateTrajectory(const EnvContext &context) const;
 
 public:
     explicit Planner(const HighwayMap &map): map(map) {}
