@@ -22,9 +22,53 @@ static int get_lane_from_file() {
     return lane;
 }
 
+/**
+ * Builds information about each lane.
+ * @param context
+ * @return a vector of lane information.
+ */
+vector<LaneInfo> Planner::buildLaneInfos(const EnvContext &context) const {
+    // Initialize the returned vector.
+    vector<LaneInfo> ret((unsigned)context.num_lanes);
+
+    const auto prev_size = context.previous_path_x.size();
+    const double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
+
+    // Loop through each tracked vehicles.
+    for (auto check_car : context.sensor_fusion) {
+        auto id = (int)check_car[0];
+        auto d = check_car[6];
+        auto lane = get_lane_number(d, context.lane_width);
+        auto vx = check_car[3];
+        auto vy = check_car[4];
+        auto check_speed = sqrt(vx * vx + vy * vy);
+        auto check_car_s = check_car[5];
+        // Take the simulator delay into account to predict where the car is.
+        check_car_s += prev_size * context.sim_update_freq * check_speed;
+
+        if (abs(check_car_s - car_s) < 2) {
+            // The car is too close to us.
+            ret[lane].front.car_id = ret[lane].rear.car_id = id;
+            ret[lane].front.clearance = ret[lane].rear.clearance = 0;
+            ret[lane].front.speed = ret[lane].rear.speed = check_speed;
+        }
+
+        auto& obj = check_car_s < car_s ? ret[lane].rear : ret[lane].front;
+        if (obj.car_id < 0 || abs(car_s - check_car_s) < obj.clearance) {
+            obj.car_id = id;
+            obj.clearance = abs(car_s - check_car_s);
+            obj.speed = check_speed;
+        }
+    }
+    return ret;
+}
+
 vector<vector<double>> Planner::planPath(const EnvContext &context) {
     const auto prev_size = context.previous_path_x.size();
     const double car_s = prev_size > 0 ? context.end_path_s : context.car_s;
+
+    // 1. Build information about each lane.
+    const vector<LaneInfo> lane_infos = buildLaneInfos(context);
 
     // 1. Determine the lane and velocity.
     double target_speed;
@@ -43,33 +87,8 @@ vector<vector<double>> Planner::planPath(const EnvContext &context) {
         case LANE_KEEPING:
         case LANE_CHANGING: {
             // Get the distance and speed of the closest car in front of us.
-            double closest_car_id = -1, closest_distance = -1, closest_speed = -1;
-            for (auto check_car : context.sensor_fusion) {
-                auto id = (int)check_car[0];
-                auto d = check_car[6];
-                if (get_lane_number(d, context.lane_width) != lane) {
-                    // The car is not in my lane.
-                    continue;
-                }
-                auto vx = check_car[3];
-                auto vy = check_car[4];
-                auto check_speed = sqrt(vx * vx + vy * vy);
-                auto check_car_s = check_car[5];
-                // Take the simulator delay into account to predict where the car is.
-                check_car_s += prev_size * context.sim_update_freq * check_speed;
-                if (check_car_s < car_s || check_car_s - car_s > context.safety_margin) {
-                    // The car is either behind or too far ahead.
-                    continue;
-                }
-                if (closest_distance > 0 && check_car_s - car_s > closest_distance) {
-                    // Not the closest car.
-                    continue;
-                }
-                closest_car_id = id;
-                closest_distance = check_car_s - car_s;
-                closest_speed = check_speed;
-            }
-            if (closest_car_id < 0) {
+            const auto& info = lane_infos[lane].front;
+            if (info.car_id < 0 || info.clearance > context.safety_margin) {
                 // No car is in the safe distance in front of our lane.
                 target_speed = mph_to_mps(context.speed_limit_mph);
                 // printf("No car detected in front, current speed %.2f m/s, target speed %.2f m/s\n",
@@ -77,15 +96,15 @@ vector<vector<double>> Planner::planPath(const EnvContext &context) {
             } else {
                 // Decrease the speed to the lane speed.
                 printf("Car %d detected in %.2f meters, current speed %.2f m/s, lane speed %.2f m/s\n",
-                       (int)closest_car_id, closest_distance, velocity, closest_speed);
+                       info.car_id, info.clearance, velocity, info.speed);
 
                 // Check if we have enough break distance.
-                if (velocity < closest_speed ||  // We will never catch up.
-                    closest_distance > 0.5 * square(velocity - closest_speed) / context.acc_limit) {
-                    target_speed = closest_speed;
+                if (velocity < info.speed ||  // We will never catch up.
+                    info.clearance > 0.5 * square(velocity - info.speed) / context.acc_limit) {
+                    target_speed = info.speed;
                 } else {
                     printf("!!!!!!Not enough brake distance!!!!!!\n");
-                    target_speed = closest_speed;
+                    target_speed = info.speed;
                 }
             }
 

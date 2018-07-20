@@ -9,6 +9,8 @@ struct EnvContext {
 
     // The max s value before wrapping around the track back to 0
     const double max_s = 6945.554;
+    // Number of lanes at one side of the highway.
+    const int num_lanes = 3;
     // Lane width in meters.
     const int lane_width = 4;
     // Simulator's frequency to update car pose (seconds).

@@ -7,6 +7,14 @@
 #include "highway_map.h"
 #include "json.hpp"
 
+struct LaneInfo {
+    struct {
+        int car_id = -1;
+        double speed = -1;
+        double clearance = -1;
+    } front, rear;
+};
+
 class Planner {
 private:
     // Finite state machine for motion planning.
@@ -15,7 +23,6 @@ private:
         LANE_CHANGING
     } fsm = LANE_KEEPING;
 
-
     // Highway map.
     const HighwayMap& map;
 
@@ -23,6 +30,7 @@ private:
     double velocity = 0;
     int lane = 1;
 
+    std::vector<LaneInfo> buildLaneInfos(const EnvContext &context) const;
     void updateVelocity(const EnvContext &context, double target_speed);
     std::vector<std::vector<double>> generateTrajectory(const EnvContext &context) const;
 
