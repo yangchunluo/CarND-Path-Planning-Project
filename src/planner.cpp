@@ -43,7 +43,7 @@ static vector<LaneInfo> buildLaneInfos(const EnvContext &context) {
         auto lane = get_lane_number(d, context.lane_width);
         if (lane < 0 || lane >= 3) {
             // Around the start, the simulator can return mal-valued car information.
-            printf("Invalid sensor_fusion data: car=%d, d=%f\n", id, d);
+            // printf("Ignored invalid sensor_fusion data: car=%d, d=%f\n", id, d);
             continue;
         }
         auto vx = check_car[3];
@@ -79,11 +79,74 @@ static vector<LaneInfo> buildLaneInfos(const EnvContext &context) {
  */
 int decideLaneChange(const int current_lane, const vector<LaneInfo> &lane_infos,
                      const EnvContext &context) {
-    auto target = get_lane_from_file();
-    if (target < 0) {
-        return current_lane;
+    vector<int> candidates;
+    if (current_lane > 0) {
+        // Not the left most lane.
+        candidates.emplace_back(current_lane - 1);
     }
-    return target;
+    if (current_lane < context.num_lanes - 1) {
+        // Not the right most lane.
+        candidates.emplace_back(current_lane + 1);
+    }
+
+    vector<int> checked_candidates;
+    for (auto candidate : candidates) {
+        // Check if it is okay to switch to the candidate lane.
+        const auto& front = lane_infos[candidate].front;
+        if (front.car_id > 0) {
+            if (front.clearance < 30) {
+                printf("Skip candidate %d because front clearance %f is too small\n",
+                       candidate, front.clearance);
+                continue;
+            }
+            if (front.speed < lane_infos[current_lane].front.speed) {
+                printf("Skip candidate %d because front speed %f is less than current lane %f\n",
+                       candidate, front.speed, lane_infos[current_lane].front.speed);
+                continue;
+            }
+        }
+
+        const auto& rear = lane_infos[candidate].rear;
+        if (rear.car_id > 0) {
+            if (rear.clearance < 5) {
+                printf("Skip candidate %d because rear clearance %f is too small\n",
+                       candidate, rear.clearance);
+                continue;
+            }
+            if (rear.speed > max(context.car_speed * 1.1, context.car_speed + 5) &&
+                rear.clearance < 15) {
+                printf("Skip candidate %d because rear clearance %f is too small for relative speed (%f %f)\n",
+                       candidate, rear.clearance, rear.speed, context.car_speed);
+                continue;
+            }
+        }
+
+        printf("Checked candidate lane %d, front car=%d clearance=%f speed=%f, "
+               "rear car=%d clearance=%f speed=%f\n",
+               candidate, front.car_id, front.clearance, front.speed,
+               rear.car_id, rear.clearance, rear.speed);
+        checked_candidates.emplace_back(candidate);
+    }
+
+    if (checked_candidates.empty()) {
+        // Stay at the current lane.
+        return current_lane;
+    } else {
+        // Find the best candidate.
+        sort(checked_candidates.begin(), checked_candidates.end(),
+             [&lane_infos](const int lhs, const int rhs) {
+                 double lhs_front = LaneInfo::getClearance(lane_infos[lhs].front);
+                 double rhs_front = LaneInfo::getClearance(lane_infos[rhs].front);
+                 if (lhs_front != rhs_front) {
+                     return lhs_front > rhs_front;
+                 }
+                 double lhs_rear = LaneInfo::getClearance(lane_infos[lhs].rear);
+                 double rhs_rear = LaneInfo::getClearance(lane_infos[rhs].rear);
+                 return lhs_rear > rhs_rear;
+
+             });
+        return checked_candidates[0];
+    }
 }
 
 /**
@@ -100,9 +163,18 @@ double Planner::planMotion(const EnvContext &context, const vector<LaneInfo> &la
     if (fsm == LANE_KEEPING) {
 
         const auto &front = lane_infos[current_lane].front;
-        if (front.car_id < 0 || front.clearance > context.safety_margin) {
+        if (front.car_id < 0 || front.clearance > 30) {
             // No car is in the safe distance in front of our lane.
             target_speed = mph_to_mps(context.speed_limit_mph);
+        } else if (front.clearance < 15) {
+            // Critically close to the car in front.
+            if (front.clearance < 5) {
+                target_speed = min(front.speed * 0.75, front.speed - 10);
+            } else {
+                target_speed = min(front.speed * 0.9, front.speed - 5);
+            }
+            printf("Critically close to front car %d, clearance %f, set speed from %f to %f",
+                   front.car_id, front.clearance, context.car_speed, target_speed);
         } else {
 
             // Decide if we want to change lane.
@@ -121,7 +193,7 @@ double Planner::planMotion(const EnvContext &context, const vector<LaneInfo> &la
 
         // Match speed with the target lane.
         const auto &front = lane_infos[target_lane].front;
-        if (front.car_id < 0 || front.clearance > context.safety_margin) {
+        if (front.car_id < 0 || front.clearance > 30) {
             // No car is within the safe distance in the target lane.
             target_speed = mph_to_mps(context.speed_limit_mph);
         } else {
