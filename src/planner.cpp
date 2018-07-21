@@ -10,20 +10,6 @@
 
 using namespace std;
 
-static int get_lane_from_file() {
-    ifstream control_file("/tmp/control.txt", ifstream::in);
-    if (!control_file.is_open()) {
-        return -1;
-    }
-    string line;
-    getline(control_file, line);
-    istringstream iss(line);
-    int lane;
-    iss >> lane;
-    remove("/tmp/control.txt");
-    return lane;
-}
-
 /**
  * Builds information about each lane.
  * @param context
