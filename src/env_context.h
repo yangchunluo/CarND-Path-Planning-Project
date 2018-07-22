@@ -18,7 +18,7 @@ struct EnvContext {
     // Speed limit in MPH.
     const double speed_limit_mph = 49.5;
     // Acceleration/deceleration limit.
-    const double acc_limit = 10 /*meters per second^2*/;
+    const double acc_limit = 8 /*meters per second^2*/;
     // Safety margin in meters.
     const double safety_margin = 30;
 
