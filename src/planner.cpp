@@ -159,7 +159,7 @@ double Planner::planMotion(const EnvContext &context, const vector<LaneInfo> &la
             } else {
                 target_speed = min(front.speed * 0.9, front.speed - 5);
             }
-            printf("Critically close to front car %d, clearance %f, set speed from %f to %f",
+            printf("Critically close to front car %d, clearance %.2f, set speed from %.2f to %.2f\n",
                    front.car_id, front.clearance, context.car_speed, target_speed);
         } else {
 
