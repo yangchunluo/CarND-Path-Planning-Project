@@ -105,3 +105,5 @@ Trajectory generation is essentially following the project walk-through using th
 ### Project Recording
 
 The project recording of running one entire loop can be [here](./path-planning-recording.mp4). The car finished the loop without any incident in 5 minutes. Most of the time, it sticks with the 50 MPH speed limit by switching lanes as the opportunity window opens.
+
+<img src="./screenshot.jpg" ref='./path-planning-recording.mp4' />
